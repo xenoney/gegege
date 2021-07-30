@@ -5,7 +5,7 @@
 //import { MMDLoader } from './jsm/loaders/MMDLoader.js';
 //import { MMDAnimationHelper } from './jsm/animation/MMDAnimationHelper.js';
 
-let mesh, camera, scene, renderer, effect;
+let mesh, camera, scene, renderer, effect, composer;
 let helper;
 
 let ready = false;
@@ -74,36 +74,83 @@ function init() {
     const container = document.createElement('div');
     document.body.appendChild(container);
 
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
-    // camera.position.set(0, 3, 45);
-    // camera.lookAt(new THREE.Vector3(0, 0, 0));
-
     // Scene
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xffffff);
+    scene.background = new THREE.Color(0x333333);
 
-    scene.add(new THREE.GridHelper(100, 10));
+    // Camera
 
-    const listener = new THREE.AudioListener();
-    camera.add(listener);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+    camera.position.set(0, 3, 45);
+    camera.lookAt(new THREE.Vector3(0, 0, 0));
     scene.add(camera);
-
-    const ambient = new THREE.AmbientLight(0x999999);
-    scene.add(ambient);
-
-    const directionalLight = new THREE.DirectionalLight(0x887766);
-    directionalLight.position.set(-1, 1, 1).normalize();
-    scene.add(directionalLight);
 
     // Renderer
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({antialias: true});
+    // renderer.shadowMap.enabled = true;
+    // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
+    // renderer.autoClear = false;
+    // renderer.preserveDrawingBuffer = true;
 
-    effect = new THREE.OutlineEffect(renderer);
+    // Orbit controls
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    // Ground
+
+    const planeGeom = new THREE.PlaneBufferGeometry(50, 50);
+    const planePosY = -0.001;
+    const planeRotX = -Math.PI / 2;
+
+    // Solid plane
+    let solidPlane = new THREE.Mesh(
+        planeGeom,
+        new THREE.MeshPhongMaterial({color: 0xffc0cb})
+    );
+    solidPlane.position.y = planePosY;
+    solidPlane.rotation.x = planeRotX;
+    solidPlane.receiveShadow = true;
+    scene.add(solidPlane);
+
+    // // Mirror plane
+    // let mirrorPlane = new THREE.Reflector(planeGeom, {
+    //     clipBias: 0.003,
+    //     textureWidth: window.innerWidth * window.devicePixelRatio,
+    //     textureHeight: window.innerHeight * window.devicePixelRatio,
+    //     color: 0x777777
+    // });
+    // mirrorPlane.position.y = planePosY;
+    // mirrorPlane.rotation.x = planeRotX;
+    // // mirrorPlane.rotateX(-Math.PI / 2);
+    // scene.add(mirrorPlane);
+
+    // Grid plane
+    // scene.add(new THREE.GridHelper(100, 10));
+
+    // TODEL
+    let geo = new THREE.BoxGeometry( 1, 1, 1 );
+    const material = new THREE.MeshBasicMaterial( {color: 0x00ff00} );
+    const cube = new THREE.Mesh( geo, material );
+    cube.castShadow = true;
+    cube.position.set(0, 10, 20);
+    scene.add( cube );
+
+    // Light
+
+    // const ambient = new THREE.AmbientLight(0x999999);
+    // scene.add(ambient);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff);
+    directionalLight.position.set(0, 25, 10);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+    // scene.add(new THREE.DirectionalLightHelper(directionalLight))
+    // scene.add(new THREE.CameraHelper(directionalLight.camera))
 
     // Model
 
@@ -114,6 +161,7 @@ function init() {
         }
     }
 
+    const selects = [];
     const manager = initLoadingManager();
     const modelFile = 'res/models/klee/klee.pmx';
     // const vmdFiles = ['res/mmd/vmds/wavefile_v2.vmd'];
@@ -128,8 +176,10 @@ function init() {
     const cameraFiles = ['res/audio-mc/pico/Motion-Camera/camera.vmd'];
     const audioFile = 'res/audio-mc/pico/audios/pico.mp3';
     const audioParams = {};
+    const listener = new THREE.AudioListener();
+    camera.add(listener);
 
-    helper = new THREE.MMDAnimationHelper();
+    helper = new THREE.MMDAnimationHelper({pmxAnimation: true});
     const loader = new THREE.MMDLoader(manager);
     const audioLoader = new THREE.AudioLoader(manager);
 
@@ -137,6 +187,7 @@ function init() {
         loader.loadWithAnimation(modelFile, vmdFiles, (mmd) => {
             mesh = mmd.mesh;
             mesh.scale.set(1, 1, 1);
+            mesh.castShadow = true;
             for (let material of mesh.material) {
                 material.userData.outlineParameters.thickness = 0.001;
             }
@@ -145,6 +196,7 @@ function init() {
                 physics: true
             });
             scene.add(mesh);
+            selects.push(mesh);
         }, onProgress, null);
     }
 
@@ -152,16 +204,63 @@ function init() {
     loadModel(modelFile2, vmdFiles2);
     loadModel(modelFile3, vmdFiles3);
 
-    loader.loadAnimation(cameraFiles, camera, (cameraAnimation) => {
-        helper.add(camera, {
-            animation: cameraAnimation
-        });
-    }, onProgress, null);
+    // loader.loadAnimation(cameraFiles, camera, (cameraAnimation) => {
+    //     helper.add(camera, {animation: cameraAnimation});
+    // }, onProgress, null);
 
     audioLoader.load(audioFile, (buffer) => {
         const audio = new THREE.Audio(listener).setBuffer(buffer);
         helper.add(audio, audioParams);
     }, onProgress, null);
+
+    // Effect
+
+    // renderer.outputEncoding = THREE.sRGBEncoding;
+    effect = new THREE.OutlineEffect(renderer);
+
+    // Post-processing
+
+    composer = new THREE.EffectComposer(renderer);
+    // composer.renderToScreen = false;
+
+    // let geometry = new THREE.PlaneBufferGeometry(50, 50);
+    let groundReflector = new THREE.ReflectorForSSRPass(planeGeom, {
+        clipBias: 0.0003,
+        textureWidth: window.innerWidth * window.devicePixelRatio,
+        textureHeight: window.innerHeight * window.devicePixelRatio,
+        // color: 0xffffff,
+        color: 0x777777,
+        useDepthTexture: true,
+    });
+    groundReflector.position.y = planePosY;
+    groundReflector.rotation.x = planeRotX;
+    groundReflector.material.depthWrite = false;
+    scene.add(groundReflector);
+
+    let ssrPass = new THREE.SSRPass({
+        renderer,
+        scene,
+        camera,
+        // width: window.innerWidth,
+        // height: window.innerHeight,
+        width: innerWidth,
+        height: innerHeight,
+        // encoding: THREE.sRGBEncoding,
+        groundReflector: groundReflector,
+        // selects: params.groundReflector ? selects : null
+        selects: selects
+    });
+    ssrPass.maxDistance = 12.5;
+    ssrPass.opacity = .3;
+    groundReflector.maxDistance = ssrPass.maxDistance;
+    groundReflector.opacity = ssrPass.opacity;
+
+    composer.addPass(ssrPass);
+
+    console.log(effect)
+    console.log(composer)
+    console.log('ssrpas', ssrPass)
+    console.log('helper', helper)
 
     //
 
@@ -173,6 +272,7 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
 
     effect.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function animate() {
@@ -182,7 +282,14 @@ function animate() {
 
 function render() {
     if (ready) {
+        // helper.audio.pause();
         helper.update(clock.getDelta());
     }
-    effect.render(scene, camera);
+    composer.render();
+    // composer.renderer.autoClear = false;
+    // effect.render(scene, camera);
+    // composer.renderer.autoClear = true;
+    if (effect) {
+    } else if (composer) {
+    }
 }

@@ -14,18 +14,18 @@ const clock = new THREE.Clock();
 
 const startButton = document.getElementById('startButton');
 startButton.addEventListener('click', async () => {
-    let supported;
+    let supported = false;
     if (navigator.xr) {
         supported = await navigator.xr.isSessionSupported('immersive-ar');
     }
+    if (!supported) {
+        alert('XR device not found');
+        return;
+    }
 
     Ammo().then(() => {
-        if (!supported) {
-            alert('XR device not found');
-            init();
-        } else {
-            initXR();
-        }
+        init();
+        initXR();
         // setupPhysicsWorld();
         animate();
     });
